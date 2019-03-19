@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::VecDeque;
+use std::cmp::Ordering;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Error, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -42,11 +43,12 @@ impl ExternalSorter {
         self.sort_dir = Some(path);
     }
 
-    /// Sort a given iterator, returning a new iterator with items
-    pub fn sort<T, I>(&self, iterator: I) -> Result<SortedIterator<T>, Error>
+    /// Sort a given iterator with a comparator function, returning a new iterator with items
+    pub fn sort_by<T, I, F>(&self, iterator: I, compare: F) -> Result<SortedIterator<T>, Error>
     where
         T: Sortable<T>,
         I: Iterator<Item = T>,
+        F: FnMut(&T, &T) -> Ordering,
     {
         let mut tempdir: Option<tempdir::TempDir> = None;
         let mut sort_dir: Option<PathBuf> = None;
@@ -70,11 +72,20 @@ impl ExternalSorter {
             Self::sort_and_write_segment(sort_dir, &mut segments_file, &mut buffer)?;
             None
         } else {
-            buffer.sort();
+            buffer.sort_unstable_by(compare);
             Some(VecDeque::from(buffer))
         };
 
         SortedIterator::new(tempdir, pass_through_queue, segments_file, count)
+    }
+
+    /// Sort a given iterator, returning a new iterator with items
+    pub fn sort<T, I>(&self, iterator: I) -> Result<SortedIterator<T>, Error>
+    where
+        T: Sortable<T>,
+        I: Iterator<Item = T>,
+    {
+        self.sort_by(iterator, |a, b| a.cmp(b))
     }
 
     /// We only want to create directory if it's needed (i.e. if the dataset doesn't fit in memory)
