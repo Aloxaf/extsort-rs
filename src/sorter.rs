@@ -18,6 +18,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Error, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
 use tempdir;
 
 pub struct ExternalSorter {
@@ -46,9 +47,9 @@ impl ExternalSorter {
     /// Sort a given iterator with a comparator function, returning a new iterator with items
     pub fn sort_by<T, I, F>(&self, iterator: I, compare: F) -> Result<SortedIterator<T>, Error>
     where
-        T: Sortable<T>,
+        T: Sortable<T> + Send,
         I: Iterator<Item = T>,
-        F: FnMut(&T, &T) -> Ordering,
+        F: Fn(&T, &T) -> Ordering + Sync + Copy,
     {
         let mut tempdir: Option<tempdir::TempDir> = None;
         let mut sort_dir: Option<PathBuf> = None;
@@ -61,7 +62,7 @@ impl ExternalSorter {
             buffer.push(next_item);
             if buffer.len() > self.max_size {
                 let sort_dir = self.lazy_create_dir(&mut tempdir, &mut sort_dir)?;
-                Self::sort_and_write_segment(sort_dir, &mut segments_file, &mut buffer)?;
+                Self::sort_by_and_write_segment(sort_dir, compare, &mut segments_file, &mut buffer)?;
             }
         }
 
@@ -69,10 +70,10 @@ impl ExternalSorter {
         // Otherwise we use the buffer itself to iterate from memory
         let pass_through_queue = if !buffer.is_empty() && !segments_file.is_empty() {
             let sort_dir = self.lazy_create_dir(&mut tempdir, &mut sort_dir)?;
-            Self::sort_and_write_segment(sort_dir, &mut segments_file, &mut buffer)?;
+            Self::sort_by_and_write_segment(sort_dir, compare, &mut segments_file, &mut buffer)?;
             None
         } else {
-            buffer.sort_unstable_by(compare);
+            buffer.par_sort_unstable_by(compare);
             Some(VecDeque::from(buffer))
         };
 
@@ -82,7 +83,7 @@ impl ExternalSorter {
     /// Sort a given iterator, returning a new iterator with items
     pub fn sort<T, I>(&self, iterator: I) -> Result<SortedIterator<T>, Error>
     where
-        T: Sortable<T>,
+        T: Sortable<T> + Send,
         I: Iterator<Item = T>,
     {
         self.sort_by(iterator, |a, b| a.cmp(b))
@@ -109,15 +110,17 @@ impl ExternalSorter {
         Ok(sort_dir.as_ref().unwrap())
     }
 
-    fn sort_and_write_segment<T>(
+    fn sort_by_and_write_segment<F, T>(
         sort_dir: &Path,
+        compare: F,
         segments: &mut Vec<File>,
         buffer: &mut Vec<T>,
     ) -> Result<(), Error>
     where
-        T: Sortable<T>,
+        T: Sortable<T> + Send,
+        F: Fn(&T, &T) -> Ordering + Sync,
     {
-        buffer.sort();
+        buffer.par_sort_unstable_by(compare);
 
         let segment_path = sort_dir.join(format!("{}", segments.len()));
         let segment_file = OpenOptions::new()
