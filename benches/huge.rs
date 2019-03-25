@@ -15,26 +15,7 @@
 #![feature(test)]
 extern crate test;
 
-use std::io::{Read, Write};
-
-use byteorder::{ReadBytesExt, WriteBytesExt};
-
 use extsort::*;
-
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-struct MyStruct(u32);
-
-impl Sortable<MyStruct> for MyStruct {
-    fn encode(item: &MyStruct, write: &mut Write) {
-        write.write_u32::<byteorder::LittleEndian>(item.0).unwrap();
-    }
-
-    fn decode(read: &mut Read) -> Option<MyStruct> {
-        read.read_u32::<byteorder::LittleEndian>()
-            .ok()
-            .map(MyStruct)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -44,8 +25,8 @@ mod tests {
     #[bench]
     fn bench_vec_sort_1000(b: &mut Bencher) {
         b.iter(|| {
-            let mut sorted_iter: Vec<MyStruct> =
-                (0..1000).map(MyStruct).into_iter().rev().collect();
+            let mut sorted_iter: Vec<u32> =
+                (0..1000).into_iter().rev().collect();
             sorted_iter.sort();
         })
     }
@@ -55,7 +36,7 @@ mod tests {
         let sorter = ExternalSorter::new();
         b.iter(|| {
             let sorted_iter = sorter
-                .sort((0..1000).map(MyStruct).into_iter().rev())
+                .sort((0..1000u32).into_iter().rev())
                 .unwrap();
             sorted_iter.sorted_count();
         })
@@ -64,8 +45,8 @@ mod tests {
     #[bench]
     fn bench_vec_sort_100_000(b: &mut Bencher) {
         b.iter(|| {
-            let mut sorted_iter: Vec<MyStruct> =
-                (0..100_000).map(MyStruct).into_iter().rev().collect();
+            let mut sorted_iter: Vec<u32> =
+                (0..100_000).into_iter().rev().collect();
             sorted_iter.sort();
         })
     }
@@ -75,7 +56,7 @@ mod tests {
         let sorter = ExternalSorter::new();
         b.iter(|| {
             let sorted_iter = sorter
-                .sort((0..100_000).map(MyStruct).into_iter().rev())
+                .sort((0..100_000u32).into_iter().rev())
                 .unwrap();
             sorted_iter.sorted_count();
         })
@@ -88,7 +69,7 @@ mod tests {
 
         b.iter(|| {
             let sorted_iter = sorter
-                .sort((0..1_000_000).map(MyStruct).into_iter().rev())
+                .sort((0..1_000_000u32).into_iter().rev())
                 .unwrap();
             sorted_iter.sorted_count();
         })
