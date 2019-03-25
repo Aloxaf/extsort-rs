@@ -18,6 +18,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Error, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use serde::{de::DeserializeOwned, Serialize};
 use tempdir;
 
 pub struct ExternalSorter {
@@ -46,7 +47,7 @@ impl ExternalSorter {
     /// Sort a given iterator, returning a new iterator with items
     pub fn sort<T, I>(&self, iterator: I) -> Result<SortedIterator<T>, Error>
     where
-        T: Sortable<T>,
+        T: Serialize + DeserializeOwned + Ord,
         I: Iterator<Item = T>,
     {
         self.sort_by(iterator, |a, b| a.cmp(b))
@@ -55,7 +56,7 @@ impl ExternalSorter {
     /// Sort a given iterator with a comparator function, returning a new iterator with items
     pub fn sort_by<T, I, F>(&self, iterator: I, compare: F) -> Result<SortedIterator<T>, Error>
     where
-        T: Sortable<T>,
+        T: Serialize + DeserializeOwned + Ord,
         I: Iterator<Item = T>,
         F: FnMut(&T, &T) -> Ordering + Copy,
     {
@@ -121,7 +122,7 @@ impl ExternalSorter {
         compare: F,
     ) -> Result<(), Error>
     where
-        T: Sortable<T>,
+        T: Serialize,
         F: FnMut(&T, &T) -> Ordering,
     {
         buffer.sort_unstable_by(compare);
@@ -136,7 +137,7 @@ impl ExternalSorter {
         let mut buf_writer = BufWriter::new(segment_file);
 
         for item in buffer.drain(0..) {
-            <T as Sortable<T>>::encode(item, &mut buf_writer);
+            buf_writer.write_all(&bincode::serialize(&item).unwrap())?;
         }
 
         let file = buf_writer.into_inner()?;
@@ -152,12 +153,7 @@ impl Default for ExternalSorter {
     }
 }
 
-pub trait Sortable<T>: Eq + Ord {
-    fn encode(item: T, output: &mut Write);
-    fn decode(intput: &mut Read) -> Option<T>;
-}
-
-pub struct SortedIterator<T: Sortable<T>> {
+pub struct SortedIterator<T: DeserializeOwned> {
     _tempdir: Option<tempdir::TempDir>,
     pass_through_queue: Option<VecDeque<T>>,
     segments_file: Vec<BufReader<File>>,
@@ -165,7 +161,7 @@ pub struct SortedIterator<T: Sortable<T>> {
     count: u64,
 }
 
-impl<T: Sortable<T>> SortedIterator<T> {
+impl<T: DeserializeOwned> SortedIterator<T> {
     fn new(
         tempdir: Option<tempdir::TempDir>,
         pass_through_queue: Option<VecDeque<T>>,
@@ -193,7 +189,7 @@ impl<T: Sortable<T>> SortedIterator<T> {
     }
 
     fn read_item(file: &mut Read) -> Option<T> {
-        <T as Sortable<T>>::decode(file)
+        bincode::deserialize_from(file).ok()
     }
 
     pub fn sorted_count(&self) -> u64 {
@@ -201,7 +197,7 @@ impl<T: Sortable<T>> SortedIterator<T> {
     }
 }
 
-impl<T: Sortable<T>> Iterator for SortedIterator<T> {
+impl<T: DeserializeOwned + Ord> Iterator for SortedIterator<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
@@ -240,8 +236,6 @@ impl<T: Sortable<T>> Iterator for SortedIterator<T> {
 pub mod test {
     use super::*;
 
-    use byteorder::{ReadBytesExt, WriteBytesExt};
-
     #[test]
     fn test_smaller_than_segment() {
         let sorter = ExternalSorter::new();
@@ -269,15 +263,5 @@ pub mod test {
 
         let sorted_data: Vec<u32> = sorted_iter.collect();
         assert_eq!(data, sorted_data);
-    }
-
-    impl Sortable<u32> for u32 {
-        fn encode(item: u32, write: &mut Write) {
-            write.write_u32::<byteorder::LittleEndian>(item).unwrap();
-        }
-
-        fn decode(read: &mut Read) -> Option<u32> {
-            read.read_u32::<byteorder::LittleEndian>().ok()
-        }
     }
 }

@@ -8,34 +8,16 @@ In order to remain efficient for all implementations, the crate doesn't handle s
 # Example
 ```rust
 extern crate extsort;
-extern crate byteorder;
 
 use extsort::*;
-use byteorder::{ReadBytesExt, WriteBytesExt};
-use std::io::{Read, Write};
-
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-struct MyStruct(u32);
-
-impl Sortable<MyStruct> for MyStruct {
-    fn encode(item: MyStruct, write: &mut Write) {
-        write.write_u32::<byteorder::LittleEndian>(item.0).unwrap();
-    }
-
-    fn decode(read: &mut Read) -> Option<MyStruct> {
-        read.read_u32::<byteorder::LittleEndian>()
-            .ok()
-            .map(MyStruct)
-    }
-}
 
 fn main() {
     let sorter = ExternalSorter::new();
-    let reversed_data = (0..1000).rev().map(MyStruct).into_iter();
+    let reversed_data = (0..1000u32).rev().into_iter();
     let sorted_iter = sorter.sort(reversed_data).unwrap();
-    let sorted_data: Vec<MyStruct> = sorted_iter.collect();
+    let sorted_data: Vec<u32> = sorted_iter.collect();
 
-    let expected_data = (0..1000).map(MyStruct).collect::<Vec<MyStruct>>();
+    let expected_data = (0..1000u32).collect::<Vec<_>>();
     assert_eq!(sorted_data, expected_data);
 }
 ```

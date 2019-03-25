@@ -11,9 +11,10 @@ edition = "2018"
 
 [dependencies]
 tempdir = "0.3"
+serde = "1.0"
+bincode = "1.1"
 
 [dev-dependencies]
-byteorder = "1.2.7"
 skeptic = "0.13"
 
 [build-dependencies]
