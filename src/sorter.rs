@@ -15,7 +15,7 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Error, Read, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter, Error, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -136,8 +136,9 @@ impl ExternalSorter {
             .open(&segment_path)?;
         let mut buf_writer = BufWriter::new(segment_file);
 
+        let config = bincode::config();
         for item in buffer.drain(0..) {
-            buf_writer.write_all(&bincode::serialize(&item).unwrap())?;
+            config.serialize_into(&mut buf_writer, &item).unwrap();
         }
 
         let file = buf_writer.into_inner()?;
